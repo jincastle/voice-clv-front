@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import {
   IonButton,
@@ -8,8 +8,10 @@ import {
   IonContent,
 } from "@ionic/react";
 import "./Home.css";
+import { Plugins } from "@capacitor/core";
 
 const Home: React.FC = () => {
+  const { Permissions } = Plugins;
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [duration, setDuration] = useState<number>(0);
@@ -18,39 +20,40 @@ const Home: React.FC = () => {
   );
   const chunks: Blob[] = [];
   const [answer, setAnswer] = useState("");
-  const [text, setText] = useState("");
 
-  const handleStartRecording = () => {
-    navigator.mediaDevices
-      .getUserMedia({ audio: true })
-      .then((stream) => {
-        const recorder = new MediaRecorder(stream);
-        recorder.ondataavailable = (e) => {
-          chunks.push(e.data);
-        };
-        recorder.onstop = () => {
-          const blob = new Blob(chunks, { type: "audio/ogg; codecs=opus" });
-          setRecordedBlob(blob);
-          chunks.length = 0;
-          setDuration(blob.size / recorder.audioBitsPerSecond!);
-        };
-        recorder.start();
-        setIsRecording(true);
-        setMediaRecorder(recorder);
-      })
-      .catch((error) => {
-        console.error(error);
-        setIsRecording(false);
-      });
+  useEffect(() => {
+    Permissions.requestPermissions(["microphone"]);
+  }, []);
+
+  const handleStartRecording = async () => {
+    const { state } = await Permissions.query({ name: "microphone" });
+    if (state !== "granted") {
+      throw new Error("Microphone permission not granted.");
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (e) => {
+        chunks.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "audio/ogg; codecs=opus" });
+        setRecordedBlob(blob);
+        chunks.length = 0;
+        setDuration(blob.size / recorder.audioBitsPerSecond!);
+      };
+      recorder.start();
+      setIsRecording(true);
+      setMediaRecorder(recorder);
+    });
   };
-
   const handleStopRecording = () => {
     if (mediaRecorder) {
       mediaRecorder.stop();
       setIsRecording(false);
     }
   };
-  const handleSendVoice = async () => {
+
+  const handleSend = async () => {
     if (!recordedBlob) {
       console.error("recordedBlob is null");
       return;
@@ -61,7 +64,7 @@ const Home: React.FC = () => {
 
     try {
       const response = await axios.post(
-        "http://10.40.101.110:8000/voice",
+        "http://localhost:8000/voice",
         formData,
         {
           headers: { "Content-Type": "multipart/form-data" },
@@ -70,28 +73,6 @@ const Home: React.FC = () => {
       setAnswer(response.data.result);
     } catch (error) {
       console.error(error);
-    }
-  };
-
-  const handleSendText = async () => {
-    if (text) {
-      try {
-        const response = await fetch("http://10.40.101.110:8000/question", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            question: text,
-          }),
-        });
-
-        const data = await response.json();
-        setAnswer(data.answer);
-        setText("");
-      } catch (err) {
-        console.error(err);
-      }
     }
   };
 
@@ -133,8 +114,6 @@ const Home: React.FC = () => {
             borderStyle: "solid",
           }}
           placeholder="텍스트를 입력하세요"
-          value={text}
-          onIonChange={(e) => setText(e.detail.value!)}
         />
         <IonButton
           style={{ display: "block", margin: "auto", marginTop: "20px" }}
@@ -152,15 +131,9 @@ const Home: React.FC = () => {
         </IonButton>
         <IonButton
           style={{ display: "block", margin: "auto", marginTop: "20px" }}
-          onClick={handleSendVoice}
+          onClick={handleSend}
         >
-          음성 질문 보내기
-        </IonButton>
-        <IonButton
-          style={{ display: "block", margin: "auto", marginTop: "20px" }}
-          onClick={handleSendText}
-        >
-          텍스트 질문 보내기
+          보내기
         </IonButton>
       </div>
     </div>
